@@ -114,3 +114,5 @@ build/
 
 # IDE extensions
 *.code-workspace
+
+COMPLETE_PHASES.md
