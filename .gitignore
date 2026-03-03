@@ -1,0 +1,116 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+logs/
+
+# Uploads
+uploads/
+*.txt
+
+# Docker
+.docker/
+docker-compose.override.yml
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.ipynb_checkpoints/
+
+# Cache
+.cache/
+*.cache
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Project specific
+downloads/
+data/
+models/
+chroma_data/
+redis/
+vectorstore/
+
+# Node modules (for frontend)
+node_modules/
+package-lock.json
+yarn.lock
+
+# Lock files
+poetry.lock
+uv.lock
+*.lock
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+*.dist-info/
+
+# Credentials and secrets
+*.key
+*.pem
+*.crt
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*.swo
+*~
+
+# IDE extensions
+*.code-workspace
