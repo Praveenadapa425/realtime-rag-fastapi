@@ -1,0 +1,14 @@
+setup:
+  - command: "cd frontend && npm install"
+  - command: "cd backend && pip install -r requirements.txt"
+  - command: "docker compose build"
+
+start:
+  - command: "docker compose up --build -d"
+
+test:
+  - command: "docker compose exec backend pytest"
+  - command: "cd frontend && npm run build"
+
+health_check:
+  - command: "curl -f http://localhost:8000/health"

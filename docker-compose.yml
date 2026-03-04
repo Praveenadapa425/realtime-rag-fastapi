@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   redis:
     image: redis:7-alpine
@@ -14,6 +12,63 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+    networks:
+      - rag_network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: realtime-rag-backend
+    env_file:
+      - ./backend/.env
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - BACKEND_PORT=8000
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - rag_network
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: realtime-rag-worker
+    env_file:
+      - ./backend/.env
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+    command: ["python", "-m", "worker.worker"]
+    volumes:
+      - ./backend:/app
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - rag_network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: realtime-rag-frontend
+    environment:
+      - VITE_BACKEND_HTTP_URL=http://localhost:8000
+      - VITE_BACKEND_WS_URL=ws://localhost:8000/query
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
     networks:
       - rag_network
 
