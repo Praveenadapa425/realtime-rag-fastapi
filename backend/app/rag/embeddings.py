@@ -21,19 +21,32 @@ def _deterministic_fallback_embedding(text: str, dimensions: int = DEFAULT_FALLB
 
 async def _ollama_embedding(text: str) -> List[float]:
     """Fetch an embedding from Ollama using the configured embedding model."""
-    url = f"{settings.OLLAMA_BASE_URL.rstrip('/')}/api/embeddings"
-    payload = {
-        "model": settings.EMBEDDING_MODEL,
-        "prompt": text,
-    }
-
+    base_url = settings.OLLAMA_BASE_URL.rstrip("/")
     timeout = httpx.Timeout(connect=10.0, read=60.0, write=30.0, pool=30.0)
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(url, json=payload)
-        response.raise_for_status()
-        data = response.json()
 
-    embedding = data.get("embedding")
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        embed_url = f"{base_url}/api/embed"
+        embed_payload = {
+            "model": settings.EMBEDDING_MODEL,
+            "input": text,
+        }
+        embed_response = await client.post(embed_url, json=embed_payload)
+        if embed_response.status_code < 400:
+            embed_data = embed_response.json()
+            embeddings = embed_data.get("embeddings")
+            if isinstance(embeddings, list) and embeddings and isinstance(embeddings[0], list):
+                return embeddings[0]
+
+        legacy_url = f"{base_url}/api/embeddings"
+        legacy_payload = {
+            "model": settings.EMBEDDING_MODEL,
+            "prompt": text,
+        }
+        legacy_response = await client.post(legacy_url, json=legacy_payload)
+        legacy_response.raise_for_status()
+        legacy_data = legacy_response.json()
+
+    embedding = legacy_data.get("embedding")
     if not isinstance(embedding, list) or not embedding:
         raise ValueError("Invalid embedding payload from Ollama")
 

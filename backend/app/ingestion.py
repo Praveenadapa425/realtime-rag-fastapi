@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 UPLOAD_DIR = "uploads"
-ALLOWED_EXTENSIONS = {".txt", ".pdf", ".md", ".doc", ".docx"}
+ALLOWED_EXTENSIONS = {".txt", ".pdf", ".md", ".docx"}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)

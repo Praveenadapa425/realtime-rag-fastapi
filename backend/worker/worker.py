@@ -1,14 +1,44 @@
 import asyncio
 import json
 import logging
+from pathlib import Path
 import aiofiles
 import redis.asyncio as redis
+from docx import Document
+from pypdf import PdfReader
 from app.config import settings
 from app.utils import chunk_text
 from app.rag.embeddings import generate_embedding
 from app.core.vector_db import collection
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_pdf_text(path: str) -> str:
+    reader = PdfReader(path)
+    pages = [page.extract_text() or "" for page in reader.pages]
+    return "\n".join(pages)
+
+
+def _extract_docx_text(path: str) -> str:
+    document = Document(path)
+    return "\n".join(paragraph.text for paragraph in document.paragraphs)
+
+
+async def _extract_text(path: str) -> str:
+    extension = Path(path).suffix.lower()
+
+    if extension in {".txt", ".md"}:
+        async with aiofiles.open(path, "r", encoding="utf-8") as file:
+            return await file.read()
+
+    if extension == ".pdf":
+        return await asyncio.to_thread(_extract_pdf_text, path)
+
+    if extension == ".docx":
+        return await asyncio.to_thread(_extract_docx_text, path)
+
+    raise ValueError(f"Unsupported file extension for extraction: {extension}")
 
 async def process_document(path: str, filename: str) -> None:
     """
@@ -25,15 +55,21 @@ async def process_document(path: str, filename: str) -> None:
     try:
         logger.info(f"📄 Processing document: {filename}")
         
-        # Read file asynchronously
-        async with aiofiles.open(path, "r", encoding="utf-8") as f:
-            text = await f.read()
+        text = await _extract_text(path)
         
         logger.info(f"📖 Read {len(text)} characters from {filename}")
+
+        if not text.strip():
+            logger.warning(f"⚠️ No extractable text found in {filename}")
+            return
         
         # Split into chunks
         chunks = chunk_text(text, chunk_size=300)
         logger.info(f"📚 Split into {len(chunks)} chunks")
+
+        if not chunks:
+            logger.warning(f"⚠️ No chunks generated for {filename}")
+            return
         
         # Process each chunk
         documents = []
@@ -115,7 +151,7 @@ async def worker() -> None:
     
     except Exception as e:
         logger.error(f"❌ Worker error: {str(e)}", exc_info=True)
-        await redis_client.close()
+        await redis_client.aclose()
 
 if __name__ == "__main__":
     # Configure logging

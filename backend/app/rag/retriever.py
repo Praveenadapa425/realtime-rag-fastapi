@@ -65,6 +65,7 @@ async def retrieve_context(
         retrieval_results = []
         
         if search_results['documents'] and search_results['documents'][0]:
+            all_candidates = []
             for i, (doc, metadata, distance) in enumerate(zip(
                 search_results['documents'][0],
                 search_results['metadatas'][0],
@@ -74,19 +75,30 @@ async def retrieve_context(
                 # Chromadb returns euclidean distance, convert to similarity
                 similarity_score = 1 / (1 + distance)
                 
+                candidate = RetrievalResult(
+                    chunk=doc,
+                    source=metadata.get("source", "unknown"),
+                    chunk_id=metadata.get("chunk", i),
+                    similarity_score=similarity_score,
+                    metadata=metadata
+                )
+                all_candidates.append(candidate)
+
                 # Filter by relevance threshold
                 if similarity_score >= relevance_threshold:
-                    result = RetrievalResult(
-                        chunk=doc,
-                        source=metadata.get("source", "unknown"),
-                        chunk_id=metadata.get("chunk", i),
-                        similarity_score=similarity_score,
-                        metadata=metadata
-                    )
-                    retrieval_results.append(result)
-                    logger.info(f"  ✓ Chunk {i}: {result.source} (score: {similarity_score:.3f})")
+                    retrieval_results.append(candidate)
+                    logger.info(f"  ✓ Chunk {i}: {candidate.source} (score: {similarity_score:.3f})")
                 else:
                     logger.info(f"  ✗ Chunk {i}: Below threshold (score: {similarity_score:.3f})")
+
+            if not retrieval_results and all_candidates:
+                fallback_count = min(top_k, len(all_candidates))
+                retrieval_results = all_candidates[:fallback_count]
+                logger.warning(
+                    "No chunks met relevance threshold %.2f; returning top %d fallback chunks",
+                    relevance_threshold,
+                    fallback_count,
+                )
         
         # Step 4: Format context for LLM
         context_str = _format_context_for_llm(retrieval_results)
