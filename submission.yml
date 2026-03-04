@@ -1,14 +1,13 @@
 setup:
-  - command: "cd frontend && npm install"
-  - command: "cd backend && pip install -r requirements.txt"
   - command: "docker compose build"
 
 start:
   - command: "docker compose up --build -d"
 
 test:
-  - command: "docker compose exec backend pytest"
-  - command: "cd frontend && npm run build"
+  - command: "docker compose exec -T backend pytest -q"
+  - command: "docker compose exec -T frontend npm run build"
 
 health_check:
   - command: "curl -f http://localhost:8000/health"
+  - command: "docker compose exec -T worker python -c \"import redis; r=redis.Redis(host='redis', port=6379, decode_responses=True); assert r.ping(); print('worker_redis_ok')\""

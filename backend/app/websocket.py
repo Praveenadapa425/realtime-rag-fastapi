@@ -1,6 +1,4 @@
 import logging
-import asyncio
-import json
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 logger = logging.getLogger(__name__)
@@ -24,12 +22,24 @@ async def websocket_endpoint(websocket: WebSocket):
         logger.info(f"✅ WebSocket client connected: {client_id}")
 
         while True:
+            terminal_sent = False
+
+            async def send_terminal_event(event_type: str, payload):
+                nonlocal terminal_sent
+                if terminal_sent:
+                    return
+                await websocket.send_json({"type": event_type, "payload": payload})
+                terminal_sent = True
+
             try:
                 query = await websocket.receive_text()
                 logger.info(f"📨 Query from {client_id}: {query[:50]}...")
 
                 if not query.strip():
-                    await websocket.send_json({"type": "error", "payload": "Query cannot be empty"})
+                    await send_terminal_event(
+                        "error",
+                        {"code": "INVALID_QUERY", "message": "Query cannot be empty"},
+                    )
                     continue
 
                 await websocket.send_json({"type": "token", "payload": "Analyzing your documents... "})
@@ -44,10 +54,20 @@ async def websocket_endpoint(websocket: WebSocket):
                 # stream generator output
                 async for stream_token in generate_streaming_response(query, context, [r.to_dict() for r in results]):
                     try:
-                        await websocket.send_json(stream_token.to_dict())
+                        stream_data = stream_token.to_dict()
+                        stream_type = stream_data.get("type")
+
+                        if stream_type in {"complete", "error"}:
+                            await send_terminal_event(stream_type, stream_data.get("payload"))
+                            break
+
+                        await websocket.send_json(stream_data)
                     except Exception as exc:
                         logger.error(f"Error sending token during stream: {str(exc)}")
                         break
+
+                if not terminal_sent:
+                    await send_terminal_event("complete", "")
 
                 # after generator sends complete token we break loop or continue next query
                 logger.info(f"✅ Finished streaming for {client_id}")
@@ -58,13 +78,16 @@ async def websocket_endpoint(websocket: WebSocket):
             except Exception as e:
                 logger.error(f"Error in RAG pipeline for {client_id}: {str(e)}", exc_info=True)
                 try:
-                    await websocket.send_json({"type": "error", "payload": str(e)})
+                    await send_terminal_event(
+                        "error",
+                        {"code": "RAG_PIPELINE_ERROR", "message": str(e)},
+                    )
                 except:
                     break
 
     except Exception as e:
         logger.error(f"WebSocket init error for {client_id}: {str(e)}", exc_info=True)
         try:
-            await websocket.close(code=1011, reason=f"Server error: {str(e)}")
+            await websocket.close(code=1011, reason="WS_INIT_ERROR")
         except:
             pass

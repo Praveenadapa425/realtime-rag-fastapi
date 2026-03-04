@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 from pydantic_settings import BaseSettings
 from pydantic import ConfigDict
 
@@ -9,8 +10,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+BASE_DIR = Path(__file__).resolve().parents[1]
+ENV_FILE = BASE_DIR / ".env"
+
 class Settings(BaseSettings):
-    model_config = ConfigDict(env_file=".env", extra="ignore")
+    model_config = ConfigDict(env_file=(str(ENV_FILE), ".env"), extra="ignore")
     
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379

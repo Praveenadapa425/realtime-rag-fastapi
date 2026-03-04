@@ -73,8 +73,22 @@ export default function App() {
           return
         }
 
+        if (data.type === 'citation') {
+          const citationPayload = data.payload
+          if (citationPayload && typeof citationPayload === 'object') {
+            setCitations((prev) => [...prev, citationPayload])
+          }
+          if (Array.isArray(data.citations) && data.citations.length > 0) {
+            setCitations((prev) => [...prev, ...data.citations])
+          }
+          return
+        }
+
         if (data.type === 'error') {
-          setError(data.payload || 'Unknown streaming error')
+          const message = typeof data.payload === 'string'
+            ? data.payload
+            : data.payload?.message || 'Unknown streaming error'
+          setError(message)
           setIsStreaming(false)
           setConnectionState('error')
           cleanupSocket()

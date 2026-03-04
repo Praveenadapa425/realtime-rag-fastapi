@@ -1,0 +1,23 @@
+{
+  "serial": {
+    "server_ttft_p50_ms": 9.227200000168523,
+    "server_ttft_p95_ms": 9.5147400003043,
+    "total_latency_p50_ms": 2988.479700001335,
+    "total_latency_p95_ms": 3512.355560001015,
+    "tokens_per_sec_avg": 47.6603195601791,
+    "connect_handshake_p50_ms": 5.655299999489216,
+    "connect_handshake_p95_ms": 7.158139999955893,
+    "avg_citations_per_stream": 6.4
+  },
+  "concurrency": {
+    "clients": 10,
+    "success_rate": 100.0,
+    "wall_time": 20.055019600000378
+  },
+  "ingestion_to_searchable": {
+    "searchable": true,
+    "latency_s": 1.4282597999990685,
+    "filename": "benchmark_ingest_1db7b4e9.txt",
+    "keyword": "GPP-UNIQUE-1db7b4e9"
+  }
+}

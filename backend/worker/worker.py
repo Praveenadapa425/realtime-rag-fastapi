@@ -114,6 +114,49 @@ async def process_document(path: str, filename: str) -> bool:
         logger.error(f"❌ Error processing {filename}: {str(e)}", exc_info=True)
         return False
 
+
+async def process_queue_item(redis_client, data: dict) -> bool:
+    """
+    Process one ingestion queue item with idempotency + retry + dead-letter handling.
+
+    Returns True if the item is fully handled (success, duplicate, or dead-lettered).
+    Returns False when the item is requeued for retry.
+    """
+    path = data.get("path")
+    filename = data.get("filename")
+    content_hash = data.get("content_hash")
+    retries = int(data.get("retries", 0))
+
+    idempotency_key = f"{filename}:{content_hash}" if content_hash else filename
+
+    if await redis_client.sismember(PROCESSED_SET_KEY, idempotency_key):
+        logger.info("↩️ Skipping already processed document: %s", filename)
+        return True
+
+    if not path or not filename:
+        logger.warning("Skipping queue message with missing path/filename")
+        return True
+
+    success = await process_document(path, filename)
+    if success:
+        await redis_client.sadd(PROCESSED_SET_KEY, idempotency_key)
+        return True
+
+    if retries < MAX_RETRIES:
+        data["retries"] = retries + 1
+        await redis_client.rpush(INGESTION_QUEUE_KEY, json.dumps(data))
+        logger.warning(
+            "Retrying %s (%d/%d)",
+            filename,
+            retries + 1,
+            MAX_RETRIES,
+        )
+        return False
+
+    await redis_client.rpush(DEAD_LETTER_QUEUE_KEY, json.dumps(data))
+    logger.error("Moved failed task to dead-letter queue: %s", filename)
+    return True
+
 async def worker() -> None:
     """
     Main worker process:
@@ -146,35 +189,7 @@ async def worker() -> None:
 
                 _, payload = message
                 data = json.loads(payload)
-                path = data.get("path")
-                filename = data.get("filename")
-                content_hash = data.get("content_hash")
-                retries = int(data.get("retries", 0))
-
-                idempotency_key = f"{filename}:{content_hash}" if content_hash else filename
-
-                if await redis_client.sismember(PROCESSED_SET_KEY, idempotency_key):
-                    logger.info("↩️ Skipping already processed document: %s", filename)
-                    continue
-
-                if path and filename:
-                    success = await process_document(path, filename)
-                    if success:
-                        await redis_client.sadd(PROCESSED_SET_KEY, idempotency_key)
-                    elif retries < MAX_RETRIES:
-                        data["retries"] = retries + 1
-                        await redis_client.rpush(INGESTION_QUEUE_KEY, json.dumps(data))
-                        logger.warning(
-                            "Retrying %s (%d/%d)",
-                            filename,
-                            retries + 1,
-                            MAX_RETRIES,
-                        )
-                    else:
-                        await redis_client.rpush(DEAD_LETTER_QUEUE_KEY, json.dumps(data))
-                        logger.error("Moved failed task to dead-letter queue: %s", filename)
-                else:
-                    logger.warning("Skipping queue message with missing path/filename")
+                await process_queue_item(redis_client, data)
             except json.JSONDecodeError as e:
                 logger.error(f"Failed to parse message: {str(e)}")
             except Exception as e:

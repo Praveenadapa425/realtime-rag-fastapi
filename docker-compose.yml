@@ -20,13 +20,16 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: realtime-rag-backend
-    env_file:
-      - ./backend/.env
     environment:
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - BACKEND_PORT=8000
-      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - REDIS_HOST=${REDIS_HOST:-redis}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - BACKEND_PORT=${BACKEND_PORT:-8000}
+      - VECTOR_DB_PATH=${VECTOR_DB_PATH:-./chroma_data}
+      - MODEL_NAME=${MODEL_NAME:-gemma3:1b}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+      - BACKEND_URL=${BACKEND_URL:-http://localhost:8000}
     ports:
       - "8000:8000"
     volumes:
@@ -42,12 +45,13 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: realtime-rag-worker
-    env_file:
-      - ./backend/.env
     environment:
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - REDIS_HOST=${REDIS_HOST:-redis}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - VECTOR_DB_PATH=${VECTOR_DB_PATH:-./chroma_data}
+      - MODEL_NAME=${MODEL_NAME:-gemma3:1b}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
     command: ["python", "-m", "worker.worker"]
     volumes:
       - ./backend:/app

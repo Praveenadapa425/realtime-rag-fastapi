@@ -13,7 +13,7 @@
 │ /health /ingest /query   │
 └───────┬─────────┬────────┘
 	│         │
-	│Pub/Sub  │Vector Search / LLM Context
+	│Redis List Queue (`RPUSH`)  │Vector Search / LLM Context
 ┌───────▼───┐   ┌─▼────────────────────┐
 │   Redis   │   │      ChromaDB        │
 │ ingestion │   │ vector collection     │
@@ -21,7 +21,7 @@
 	│                  │
 ┌───────▼──────────────────▼───────────┐
 │         Worker Process                │
-│ read file → chunk → embed → upsert    │
+│ `BLPOP` → read file → chunk → embed → upsert │
 └────────────────────────────────────────┘
 	      │
 	      ▼
@@ -43,11 +43,13 @@
 ### 3. Redis
 - Acts as durable message queue (Redis List key `ingestion_queue`).
 - Decouples API request handling from ingestion work.
+- Stores processed idempotency keys and a dead-letter queue (`ingestion_dead_letter`).
 
 ### 4. Worker
 - Blocks on Redis queue (`BLPOP`) and consumes tasks reliably.
 - Processes uploaded files asynchronously.
 - Chunks text and stores vectors + metadata in ChromaDB.
+- Retries failed tasks and dead-letters after max attempts.
 
 ### 5. ChromaDB
 - Stores embeddings and metadata in persistent collection.
@@ -60,8 +62,9 @@
 ## WebSocket Message Contract
 
 ```json
-{"type":"token","payload":"...","citations":[...]}
-{"type":"error","payload":"..."}
+{"type":"token","payload":"..."}
+{"type":"citation","payload":{"source":"...","chunk_id":0,"similarity":0.9,"sentence":"..."}}
+{"type":"error","payload":{"code":"...","message":"..."}}
 {"type":"complete","payload":""}
 ```
 

@@ -10,29 +10,40 @@ logger = logging.getLogger(__name__)
 
 class StreamToken:
     """Represents a token to be streamed to the client"""
-    def __init__(self, token: str, token_type: str = "token", citations: List[Dict[str, Any]] = None):
+    def __init__(
+        self,
+        token: Any,
+        token_type: str = "token",
+        citations: List[Dict[str, Any]] = None,
+        metadata: Dict[str, Any] = None,
+    ):
         self.token = token
         self.token_type = token_type  # "token", "citation", "complete", "error"
         self.citations = citations or []
+        self.metadata = metadata or {}
     
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        response = {
             "type": self.token_type,
             "payload": self.token,
-            "citations": self.citations if self.citations else None
         }
+        if self.citations:
+            response["citations"] = self.citations
+        if self.metadata:
+            response["metadata"] = self.metadata
+        return response
     
     def to_json(self) -> str:
         return json.dumps(self.to_dict())
 
 
-def _select_best_citation(sentence: str, retrieved_chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _select_best_citation(sentence: str, retrieved_chunks: List[Dict[str, Any]]) -> Dict[str, Any] | None:
     if not sentence.strip() or not retrieved_chunks:
-        return []
+        return None
 
     sentence_terms = set(re.findall(r"[a-zA-Z0-9]+", sentence.lower()))
     if not sentence_terms:
-        return []
+        return None
 
     best_chunk = None
     best_overlap = -1
@@ -46,13 +57,15 @@ def _select_best_citation(sentence: str, retrieved_chunks: List[Dict[str, Any]])
             best_chunk = chunk
 
     if not best_chunk:
-        return []
+        return None
 
-    return [{
+    return {
         "source": best_chunk.get("source", "document"),
         "chunk_id": best_chunk.get("chunk_id", 0),
-        "similarity": best_chunk.get("similarity_score", 0.0)
-    }]
+        "similarity": best_chunk.get("similarity_score", 0.0),
+        "sentence": sentence.strip(),
+        "method": "sentence_overlap",
+    }
 
 
 async def warmup_ollama() -> None:
@@ -115,18 +128,28 @@ async def generate_streaming_response(
         
         logger.info(f"📝 Starting token generation...")
         
-        # Step 3: Stream tokens one-by-one
+        # Step 3: Stream tokens and explicit citation events
+        terminal_emitted = False
         async for stream_token in ollama_response:
+            if stream_token.token_type in {"complete", "error"}:
+                terminal_emitted = True
             yield stream_token
             await asyncio.sleep(0.001)
         
         # Step 4: Send completion signal
-        logger.info(f"✅ Response generation complete")
-        yield StreamToken("", token_type="complete")
+        if not terminal_emitted:
+            logger.info(f"✅ Response generation complete")
+            yield StreamToken("", token_type="complete")
     
     except Exception as e:
         logger.error(f"❌ Error generating response: {str(e)}", exc_info=True)
-        yield StreamToken(f"Error: {str(e)}", token_type="error")
+        yield StreamToken(
+            {
+                "code": "GENERATION_ERROR",
+                "message": str(e),
+            },
+            token_type="error",
+        )
 
 async def _generate_mock_response(
     query: str,
@@ -225,21 +248,41 @@ async def _generate_ollama_response(
                     if not token:
                         continue
 
+                    citation_payload = None
                     current_sentence += token
-                    citations = []
                     if any(end in token for end in [".", "!", "?"]):
-                        citations = _select_best_citation(current_sentence, retrieved_chunks)
+                        citation_payload = _select_best_citation(current_sentence, retrieved_chunks)
                         current_sentence = ""
 
-                    yield StreamToken(token, token_type="token", citations=citations)
+                    yield StreamToken(token, token_type="token")
+
+                    if citation_payload:
+                        yield StreamToken(
+                            citation_payload,
+                            token_type="citation",
+                            citations=[citation_payload],
+                        )
                     token_index += 1
 
     except httpx.HTTPStatusError as exc:
         logger.error(f"Ollama HTTP error: {exc.response.status_code} - {exc.response.text}")
-        yield StreamToken("Ollama request failed. Check model name and server status.", token_type="error")
+        yield StreamToken(
+            {
+                "code": "OLLAMA_HTTP_ERROR",
+                "message": "Ollama request failed. Check model name and server status.",
+                "status_code": exc.response.status_code,
+            },
+            token_type="error",
+        )
     except Exception as exc:
         logger.error(f"Ollama stream error: {str(exc)}", exc_info=True)
-        yield StreamToken("Unable to reach Ollama. Ensure Ollama is running on localhost:11434.", token_type="error")
+        yield StreamToken(
+            {
+                "code": "OLLAMA_UNAVAILABLE",
+                "message": "Unable to reach Ollama. Ensure Ollama is running on localhost:11434.",
+            },
+            token_type="error",
+        )
 
 def _build_rag_prompt(query: str, context: str) -> str:
     """

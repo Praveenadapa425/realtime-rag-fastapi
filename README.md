@@ -47,7 +47,13 @@ submission.yml
 
 ## Environment
 
-Create `backend/.env` (or update existing):
+Canonical backend env path: `backend/.env`
+
+```bash
+cp backend/.env.example backend/.env
+```
+
+Then edit values as needed:
 
 ```
 REDIS_HOST=localhost
@@ -61,6 +67,8 @@ BACKEND_URL=http://localhost:8000
 ```
 
 For frontend, copy `frontend/.env.example` to `frontend/.env` as needed.
+
+Optional compose-level overrides can be placed in root `.env` (Compose defaults are provided, so this is optional).
 
 ## Local Development
 
@@ -128,6 +136,12 @@ Streaming benchmark with real numbers:
 
 ```bash
 python tests/benchmark_ws.py
+```
+
+Latest benchmark JSON artifact:
+
+```bash
+cat tests/benchmark_results.json
 ```
 
 Frontend build validation:
