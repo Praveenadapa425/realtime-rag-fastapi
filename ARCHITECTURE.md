@@ -41,11 +41,11 @@
 - `WS /query`: retrieves context, calls generator, streams token events.
 
 ### 3. Redis
-- Acts as lightweight message queue (Pub/Sub channel `ingestion_queue`).
+- Acts as durable message queue (Redis List key `ingestion_queue`).
 - Decouples API request handling from ingestion work.
 
 ### 4. Worker
-- Listens to Redis channel.
+- Blocks on Redis queue (`BLPOP`) and consumes tasks reliably.
 - Processes uploaded files asynchronously.
 - Chunks text and stores vectors + metadata in ChromaDB.
 

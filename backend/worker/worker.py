@@ -12,6 +12,7 @@ from app.rag.embeddings import generate_embedding
 from app.core.vector_db import collection
 
 logger = logging.getLogger(__name__)
+INGESTION_QUEUE_KEY = "ingestion_queue"
 
 
 def _extract_pdf_text(path: str) -> str:
@@ -110,8 +111,8 @@ async def worker() -> None:
     """
     Main worker process:
     1. Connect to Redis
-    2. Subscribe to ingestion_queue channel
-    3. Listen for document upload messages
+    2. Block on durable ingestion queue key
+    3. Consume document upload messages
     4. Process documents asynchronously
     """
     logger.info("🤖 Starting worker process...")
@@ -128,29 +129,31 @@ async def worker() -> None:
         await redis_client.ping()
         logger.info("✅ Connected to Redis")
         
-        # Subscribe to ingestion queue
-        pubsub = redis_client.pubsub()
-        await pubsub.subscribe("ingestion_queue")
-        
-        logger.info("👂 Worker listening for ingestion tasks...")
-        
-        # Listen for messages
-        async for message in pubsub.listen():
-            if message["type"] == "message":
-                try:
-                    data = json.loads(message["data"])
-                    path = data.get("path")
-                    filename = data.get("filename")
-                    
-                    if path and filename:
-                        await process_document(path, filename)
-                except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse message: {str(e)}")
-                except Exception as e:
-                    logger.error(f"Error processing message: {str(e)}", exc_info=True)
+        logger.info("👂 Worker waiting on durable ingestion queue...")
+
+        while True:
+            try:
+                message = await redis_client.blpop(INGESTION_QUEUE_KEY, timeout=5)
+                if message is None:
+                    continue
+
+                _, payload = message
+                data = json.loads(payload)
+                path = data.get("path")
+                filename = data.get("filename")
+
+                if path and filename:
+                    await process_document(path, filename)
+                else:
+                    logger.warning("Skipping queue message with missing path/filename")
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse message: {str(e)}")
+            except Exception as e:
+                logger.error(f"Error processing message: {str(e)}", exc_info=True)
     
     except Exception as e:
         logger.error(f"❌ Worker error: {str(e)}", exc_info=True)
+    finally:
         await redis_client.aclose()
 
 if __name__ == "__main__":

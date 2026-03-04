@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+INGESTION_QUEUE_KEY = "ingestion_queue"
 UPLOAD_DIR = "uploads"
 ALLOWED_EXTENSIONS = {".txt", ".pdf", ".md", ".docx"}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
@@ -61,7 +62,7 @@ async def ingest_document(file: UploadFile = File(...)):
             logger.error(f"Failed to save file {file_path}: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
         
-        # Publish to Redis
+        # Push task to durable Redis queue
         message = {
             "filename": file.filename,
             "path": file_path,
@@ -69,11 +70,8 @@ async def ingest_document(file: UploadFile = File(...)):
         }
         
         try:
-            await redis_client.publish(
-                "ingestion_queue",
-                json.dumps(message)
-            )
-            logger.info(f"✅ Published ingestion message for {file.filename}")
+            queue_size = await redis_client.rpush(INGESTION_QUEUE_KEY, json.dumps(message))
+            logger.info(f"✅ Queued ingestion task for {file.filename} (queue size: {queue_size})")
         except Exception as e:
             logger.error(f"Failed to publish to Redis: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Failed to queue ingestion: {str(e)}")

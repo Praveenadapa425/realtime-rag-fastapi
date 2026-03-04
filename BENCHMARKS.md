@@ -38,6 +38,23 @@ This document summarizes benchmark methodology and current local observations.
 - ✅ Ingestion pipeline processes uploaded files asynchronously.
 - ✅ Redis-backed decoupling prevents `/ingest` endpoint blocking.
 
+## Measured Results (2026-03-04)
+
+Command used:
+
+`python tests/benchmark_ws.py`
+
+Serial streaming benchmark (5 runs):
+- TTFT p50: **1498 ms**
+- TTFT p95: **2161 ms**
+- Average token rate: **54.03 tokens/sec**
+- Average stream duration: **6.17 sec**
+
+Concurrency benchmark:
+- Concurrent clients: **5**
+- Success rate: **100%**
+- Total wall time: **23.47 sec**
+
 ## Gaps / Next Measurements
 
 To produce strict numeric report for submission, run load test script and record:
@@ -51,6 +68,7 @@ To produce strict numeric report for submission, run load test script and record
 - Backend API test: `pytest`
 - Frontend build sanity: `npm run build`
 - Multi-client websocket test: use k6/artillery/locust custom websocket scenario.
+- Fast local benchmark script: `python tests/benchmark_ws.py`
 
 ## Optimization Notes
 

@@ -2,10 +2,10 @@ from app.core import redis as redis_module
 
 
 def test_ingest_txt_file_success(client, monkeypatch):
-    async def fake_publish(channel, message):
+    async def fake_rpush(queue, message):
         return 1
 
-    monkeypatch.setattr(redis_module.redis_client, "publish", fake_publish)
+    monkeypatch.setattr(redis_module.redis_client, "rpush", fake_rpush)
 
     files = {"file": ("sample.txt", b"hello rag", "text/plain")}
     response = client.post("/ingest", files=files)
@@ -17,10 +17,10 @@ def test_ingest_txt_file_success(client, monkeypatch):
 
 
 def test_ingest_invalid_extension(client, monkeypatch):
-    async def fake_publish(channel, message):
+    async def fake_rpush(queue, message):
         return 1
 
-    monkeypatch.setattr(redis_module.redis_client, "publish", fake_publish)
+    monkeypatch.setattr(redis_module.redis_client, "rpush", fake_rpush)
 
     files = {"file": ("sample.exe", b"payload", "application/octet-stream")}
     response = client.post("/ingest", files=files)

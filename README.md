@@ -12,7 +12,7 @@ Full-stack Retrieval-Augmented Generation (RAG) app with:
 - Streaming responses from `/query` WebSocket endpoint.
 - Real-time ingestion from `/ingest` endpoint.
 - Async worker pipeline: upload → chunk → embed → vector index.
-- Redis Pub/Sub decoupling between API and worker.
+- Durable Redis queue decoupling between API and worker.
 - React frontend for querying, streaming output, and document uploads.
 
 ## Project Structure
@@ -124,6 +124,12 @@ End-to-end websocket smoke test:
 python tests/e2e_test.py
 ```
 
+Streaming benchmark with real numbers:
+
+```bash
+python tests/benchmark_ws.py
+```
+
 Frontend build validation:
 
 ```bash
@@ -137,6 +143,7 @@ npm run build
 - **Redis connection refused**: run `docker compose up -d redis`.
 - **No Ollama model found**: `ollama pull gemma3:1b`.
 - **No citations in stream**: retriever threshold may filter all chunks.
+- **Weak retrieval relevance**: ensure Ollama embedding endpoint/model is available.
 
 ## Notes
 
