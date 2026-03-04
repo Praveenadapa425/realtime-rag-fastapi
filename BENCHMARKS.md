@@ -54,6 +54,6 @@ To produce strict numeric report for submission, run load test script and record
 
 ## Optimization Notes
 
-- Use real embedding model (replace mock) to improve retrieval relevance.
+- Ensure `EMBEDDING_MODEL` is available in Ollama for best retrieval relevance.
 - Tune retrieval threshold to balance precision/recall.
 - Add connection pooling / worker scaling for higher concurrency.

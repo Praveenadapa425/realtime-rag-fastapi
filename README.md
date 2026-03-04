@@ -140,6 +140,6 @@ npm run build
 
 ## Notes
 
-- Current embedding function is mock-friendly and architecture-ready.
+- Embeddings use Ollama (`EMBEDDING_MODEL`) with deterministic fallback when unavailable.
 - Generator uses Ollama streaming path and emits token events.
 - System is designed to evolve toward stronger retrieval and citation grounding.

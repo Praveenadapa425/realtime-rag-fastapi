@@ -36,7 +36,7 @@ async def generate_streaming_response(
     
     Process:
     1. Format prompt with query + context
-    2. Generate response tokens (currently mock, will be real LLM tomorrow)
+    2. Generate response tokens via Ollama streaming API
     3. Track which chunks are cited
     4. Stream tokens one-by-one to client
     5. Include citation info with relevant tokens
@@ -85,7 +85,7 @@ async def _generate_mock_response(
     """
     Mock response generator.
 
-    This remains as fallback/testing utility.
+    Legacy fallback/testing utility.
     
     Args:
         query: User query
