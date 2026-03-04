@@ -4,6 +4,12 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+
+def _collection_name_for_model(model_name: str) -> str:
+    normalized = "".join(ch.lower() if ch.isalnum() else "_" for ch in model_name)
+    normalized = "_".join(part for part in normalized.split("_") if part)
+    return f"documents_{normalized}"[:63]
+
 try:
     client = chromadb.Client(
         chromadb.config.Settings(
@@ -11,12 +17,18 @@ try:
             is_persistent=True
         )
     )
+
+    collection_name = _collection_name_for_model(settings.EMBEDDING_MODEL)
     
     collection = client.get_or_create_collection(
-        name="documents"
+        name=collection_name
     )
     
-    logger.info(f"✅ ChromaDB initialized at {settings.VECTOR_DB_PATH}")
+    logger.info(
+        "✅ ChromaDB initialized at %s (collection: %s)",
+        settings.VECTOR_DB_PATH,
+        collection_name,
+    )
 except Exception as e:
     logger.error(f"❌ Failed to initialize ChromaDB: {str(e)}")
     raise

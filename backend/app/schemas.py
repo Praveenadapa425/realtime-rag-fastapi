@@ -14,6 +14,18 @@ class IngestionResponse(BaseModel):
     message: str
     filename: str
     path: str
+    task_id: Optional[str] = None
+    status: Optional[str] = None
+
+
+class IngestionStatusResponse(BaseModel):
+    """Live ingestion status for a queued task"""
+    task_id: str
+    filename: str
+    status: str
+    message: Optional[str] = None
+    retries: int = 0
+    updated_at: Optional[str] = None
 
 class IngestionError(BaseModel):
     """Error response for ingestion"""

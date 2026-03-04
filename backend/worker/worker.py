@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 from pathlib import Path
+from datetime import datetime, timezone
 import aiofiles
 import redis.asyncio as redis
 from docx import Document
@@ -15,6 +16,7 @@ logger = logging.getLogger(__name__)
 INGESTION_QUEUE_KEY = "ingestion_queue"
 PROCESSED_SET_KEY = "ingestion_processed"
 DEAD_LETTER_QUEUE_KEY = "ingestion_dead_letter"
+INGESTION_STATUS_PREFIX = "ingestion_status"
 MAX_RETRIES = 3
 
 
@@ -115,6 +117,26 @@ async def process_document(path: str, filename: str) -> bool:
         return False
 
 
+def _status_key(task_id: str) -> str:
+    return f"{INGESTION_STATUS_PREFIX}:{task_id}"
+
+
+async def _set_status(redis_client, task_id: str, status: str, message: str, retries: int = 0) -> None:
+    if not task_id:
+        return
+
+    await redis_client.hset(
+        _status_key(task_id),
+        mapping={
+            "status": status,
+            "message": message,
+            "retries": retries,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+    await redis_client.expire(_status_key(task_id), 60 * 60 * 24)
+
+
 async def process_queue_item(redis_client, data: dict) -> bool:
     """
     Process one ingestion queue item with idempotency + retry + dead-letter handling.
@@ -125,21 +147,27 @@ async def process_queue_item(redis_client, data: dict) -> bool:
     path = data.get("path")
     filename = data.get("filename")
     content_hash = data.get("content_hash")
+    task_id = data.get("task_id")
     retries = int(data.get("retries", 0))
 
     idempotency_key = f"{filename}:{content_hash}" if content_hash else filename
 
     if await redis_client.sismember(PROCESSED_SET_KEY, idempotency_key):
         logger.info("↩️ Skipping already processed document: %s", filename)
+        await _set_status(redis_client, task_id, "indexed", "Already indexed (deduplicated)", retries)
         return True
 
     if not path or not filename:
         logger.warning("Skipping queue message with missing path/filename")
+        await _set_status(redis_client, task_id, "failed", "Missing path/filename in queue payload", retries)
         return True
+
+    await _set_status(redis_client, task_id, "processing", "Worker is extracting and indexing", retries)
 
     success = await process_document(path, filename)
     if success:
         await redis_client.sadd(PROCESSED_SET_KEY, idempotency_key)
+        await _set_status(redis_client, task_id, "indexed", "Document indexed and searchable", retries)
         return True
 
     if retries < MAX_RETRIES:
@@ -151,10 +179,18 @@ async def process_queue_item(redis_client, data: dict) -> bool:
             retries + 1,
             MAX_RETRIES,
         )
+        await _set_status(
+            redis_client,
+            task_id,
+            "retrying",
+            f"Indexing failed; retry scheduled ({retries + 1}/{MAX_RETRIES})",
+            retries + 1,
+        )
         return False
 
     await redis_client.rpush(DEAD_LETTER_QUEUE_KEY, json.dumps(data))
     logger.error("Moved failed task to dead-letter queue: %s", filename)
+    await _set_status(redis_client, task_id, "failed", "Indexing failed after maximum retries", retries)
     return True
 
 async def worker() -> None:

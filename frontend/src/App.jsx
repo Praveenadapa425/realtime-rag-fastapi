@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 const BACKEND_HTTP_URL = import.meta.env.VITE_BACKEND_HTTP_URL || 'http://localhost:8000'
 const BACKEND_WS_URL = import.meta.env.VITE_BACKEND_WS_URL || 'ws://localhost:8000/query'
@@ -14,8 +14,12 @@ export default function App() {
   const [selectedFile, setSelectedFile] = useState(null)
   const [uploadState, setUploadState] = useState('idle')
   const [uploadMessage, setUploadMessage] = useState('')
+  const [ingestionTaskId, setIngestionTaskId] = useState('')
+  const [ingestionStatus, setIngestionStatus] = useState('idle')
+  const [ingestionStatusMessage, setIngestionStatusMessage] = useState('')
 
   const wsRef = useRef(null)
+  const ingestionPollRef = useRef(null)
 
   const citationKey = (item) => `${item?.source || 'unknown'}-${item?.chunk_id ?? 0}`
 
@@ -39,6 +43,51 @@ export default function App() {
       wsRef.current = null
     }
   }
+
+  const stopIngestionPolling = () => {
+    if (ingestionPollRef.current) {
+      clearInterval(ingestionPollRef.current)
+      ingestionPollRef.current = null
+    }
+  }
+
+  const fetchIngestionStatus = async (taskId) => {
+    try {
+      const statusResponse = await fetch(`${BACKEND_HTTP_URL}/ingest/status/${taskId}`)
+      if (!statusResponse.ok) {
+        return
+      }
+
+      const statusPayload = await statusResponse.json()
+      const statusValue = statusPayload?.status || 'unknown'
+      const statusMessage = statusPayload?.message || ''
+
+      setIngestionStatus(statusValue)
+      setIngestionStatusMessage(statusMessage)
+
+      if (statusValue === 'indexed' || statusValue === 'failed') {
+        stopIngestionPolling()
+      }
+    } catch {
+      setIngestionStatus('unknown')
+      setIngestionStatusMessage('Unable to fetch indexing status')
+    }
+  }
+
+  const startIngestionPolling = (taskId) => {
+    stopIngestionPolling()
+    fetchIngestionStatus(taskId)
+    ingestionPollRef.current = setInterval(() => {
+      fetchIngestionStatus(taskId)
+    }, 1500)
+  }
+
+  useEffect(() => {
+    return () => {
+      stopIngestionPolling()
+      cleanupSocket()
+    }
+  }, [])
 
   const handleAsk = async (event) => {
     event.preventDefault()
@@ -144,14 +193,30 @@ export default function App() {
       if (!response.ok) {
         setUploadState('error')
         setUploadMessage(result?.detail || 'Upload failed')
+        setIngestionTaskId('')
+        setIngestionStatus('failed')
+        setIngestionStatusMessage(result?.detail || 'Upload failed')
         return
       }
 
       setUploadState('success')
-      setUploadMessage(result?.message || 'Document ingestion initiated')
+      setUploadMessage(result?.message || 'Document ingestion queued')
+
+      const taskId = result?.task_id || ''
+      const status = result?.status || 'queued'
+      setIngestionTaskId(taskId)
+      setIngestionStatus(status)
+      setIngestionStatusMessage('Waiting for worker to index the document...')
+
+      if (taskId) {
+        startIngestionPolling(taskId)
+      }
     } catch {
       setUploadState('error')
       setUploadMessage('Upload failed. Check backend service.')
+      setIngestionTaskId('')
+      setIngestionStatus('failed')
+      setIngestionStatusMessage('Upload failed. Check backend service.')
     }
   }
 
@@ -218,6 +283,12 @@ export default function App() {
           <div className={`upload ${uploadState}`}>
             {uploadMessage || 'Choose a file and upload to start ingestion.'}
           </div>
+
+          <div className="status">
+            Ingestion status: <strong>{ingestionStatus}</strong>
+            {ingestionTaskId ? ` (${ingestionTaskId})` : ''}
+          </div>
+          <div className="upload">{ingestionStatusMessage || 'No active ingestion task.'}</div>
 
           <div className="help">
             <h3>How to use</h3>
