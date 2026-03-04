@@ -2,6 +2,8 @@ import logging
 import asyncio
 from typing import AsyncGenerator, Dict, List, Any, Tuple
 import json
+import httpx
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +32,7 @@ async def generate_streaming_response(
     """
     Generate streaming response based on query and retrieved context.
     
-    This is a MOCK generator. When you install Ollama tomorrow, swap this
-    to call real LLM API instead of returning mock responses.
+    Streams response from Ollama using /api/generate.
     
     Process:
     1. Format prompt with query + context
@@ -58,18 +59,15 @@ async def generate_streaming_response(
         prompt = _build_rag_prompt(query, context)
         logger.debug(f"Built prompt with {len(prompt)} characters")
         
-        # Step 2: Generate mock response
-        # NOTE: Tomorrow replace this with real Ollama call:
-        # response_stream = ollama_client.generate(prompt, stream=True)
-        
-        mock_response = _generate_mock_response(query, context, retrieved_chunks)
+        # Step 2: Generate Ollama streamed response
+        ollama_response = _generate_ollama_response(prompt, retrieved_chunks)
         
         logger.info(f"📝 Starting token generation...")
         
         # Step 3: Stream tokens one-by-one
-        async for stream_token in mock_response:
+        async for stream_token in ollama_response:
             yield stream_token
-            await asyncio.sleep(0.05)  # Simulate generation delay
+            await asyncio.sleep(0.001)
         
         # Step 4: Send completion signal
         logger.info(f"✅ Response generation complete")
@@ -86,9 +84,8 @@ async def _generate_mock_response(
 ) -> AsyncGenerator[StreamToken, None]:
     """
     Mock response generator.
-    
-    Simulates token-by-token generation with citations.
-    Tomorrow: Replace with real Ollama API call.
+
+    This remains as fallback/testing utility.
     
     Args:
         query: User query
@@ -134,6 +131,66 @@ async def _generate_mock_response(
         token_count += 1
         
         logger.debug(f"Yielded token {token_count}: {token}")
+
+async def _generate_ollama_response(
+    prompt: str,
+    retrieved_chunks: List[Dict[str, Any]]
+) -> AsyncGenerator[StreamToken, None]:
+    """
+    Stream tokens from local Ollama server.
+
+    Endpoint: POST /api/generate with stream=true
+    """
+    url = f"{settings.OLLAMA_BASE_URL.rstrip('/')}/api/generate"
+    payload = {
+        "model": settings.MODEL_NAME,
+        "prompt": prompt,
+        "stream": True
+    }
+
+    timeout = httpx.Timeout(connect=10.0, read=120.0, write=30.0, pool=30.0)
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream("POST", url, json=payload) as response:
+                response.raise_for_status()
+
+                token_index = 0
+                async for line in response.aiter_lines():
+                    if not line:
+                        continue
+
+                    try:
+                        data = json.loads(line)
+                    except json.JSONDecodeError:
+                        logger.debug("Skipping non-JSON Ollama stream line")
+                        continue
+
+                    if data.get("done"):
+                        break
+
+                    token = data.get("response", "")
+                    if not token:
+                        continue
+
+                    citations = []
+                    if token_index > 0 and token_index % 20 == 0 and retrieved_chunks:
+                        top = retrieved_chunks[0]
+                        citations.append({
+                            "source": top.get("source", "document"),
+                            "chunk_id": top.get("chunk_id", 0),
+                            "similarity": top.get("similarity_score", 0.0)
+                        })
+
+                    yield StreamToken(token, token_type="token", citations=citations)
+                    token_index += 1
+
+    except httpx.HTTPStatusError as exc:
+        logger.error(f"Ollama HTTP error: {exc.response.status_code} - {exc.response.text}")
+        yield StreamToken("Ollama request failed. Check model name and server status.", token_type="error")
+    except Exception as exc:
+        logger.error(f"Ollama stream error: {str(exc)}", exc_info=True)
+        yield StreamToken("Unable to reach Ollama. Ensure Ollama is running on localhost:11434.", token_type="error")
 
 def _build_rag_prompt(query: str, context: str) -> str:
     """

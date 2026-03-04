@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     REDIS_PORT: int = 6379
     VECTOR_DB_PATH: str = "./chroma_data"
     MODEL_NAME: str = "llama3"
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
     BACKEND_PORT: int = 8000
     FRONTEND_URL: str = "http://localhost:3000"
     BACKEND_URL: str = "http://localhost:8000"
