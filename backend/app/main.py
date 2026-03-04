@@ -8,6 +8,7 @@ from app.ingestion import router as ingestion_router
 from app.core.redis import redis_client
 from app.schemas import HealthCheckResponse
 from app.config import settings
+from app.rag.generator import warmup_ollama
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,11 @@ async def lifespan(_: FastAPI):
         logger.info("✅ Redis connection successful")
     except Exception as e:
         logger.error(f"❌ Redis connection failed: {str(e)}")
+
+    try:
+        await warmup_ollama()
+    except Exception as e:
+        logger.warning(f"Ollama warmup not completed: {str(e)}")
 
     try:
         yield

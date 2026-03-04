@@ -32,6 +32,8 @@ async def websocket_endpoint(websocket: WebSocket):
                     await websocket.send_json({"type": "error", "payload": "Query cannot be empty"})
                     continue
 
+                await websocket.send_json({"type": "token", "payload": "Analyzing your documents... "})
+
                 # retrieve context and metadata
                 from app.rag.retriever import retrieve_context
                 from app.rag.generator import generate_streaming_response

@@ -13,6 +13,9 @@ from app.core.vector_db import collection
 
 logger = logging.getLogger(__name__)
 INGESTION_QUEUE_KEY = "ingestion_queue"
+PROCESSED_SET_KEY = "ingestion_processed"
+DEAD_LETTER_QUEUE_KEY = "ingestion_dead_letter"
+MAX_RETRIES = 3
 
 
 def _extract_pdf_text(path: str) -> str:
@@ -41,7 +44,7 @@ async def _extract_text(path: str) -> str:
 
     raise ValueError(f"Unsupported file extension for extraction: {extension}")
 
-async def process_document(path: str, filename: str) -> None:
+async def process_document(path: str, filename: str) -> bool:
     """
     Process uploaded document:
     1. Read file
@@ -62,7 +65,7 @@ async def process_document(path: str, filename: str) -> None:
 
         if not text.strip():
             logger.warning(f"⚠️ No extractable text found in {filename}")
-            return
+            return False
         
         # Split into chunks
         chunks = chunk_text(text, chunk_size=300)
@@ -70,7 +73,7 @@ async def process_document(path: str, filename: str) -> None:
 
         if not chunks:
             logger.warning(f"⚠️ No chunks generated for {filename}")
-            return
+            return False
         
         # Process each chunk
         documents = []
@@ -93,19 +96,23 @@ async def process_document(path: str, filename: str) -> None:
             })
         
         # Store in ChromaDB
-        collection.add(
+        await asyncio.to_thread(
+            collection.add,
             documents=documents,
             embeddings=embeddings,
             ids=ids,
-            metadatas=metadatas
+            metadatas=metadatas,
         )
         
         logger.info(f"✅ Successfully processed {filename} - {len(chunks)} chunks stored in ChromaDB")
+        return True
         
     except FileNotFoundError:
         logger.error(f"❌ File not found: {path}")
+        return False
     except Exception as e:
         logger.error(f"❌ Error processing {filename}: {str(e)}", exc_info=True)
+        return False
 
 async def worker() -> None:
     """
@@ -141,9 +148,31 @@ async def worker() -> None:
                 data = json.loads(payload)
                 path = data.get("path")
                 filename = data.get("filename")
+                content_hash = data.get("content_hash")
+                retries = int(data.get("retries", 0))
+
+                idempotency_key = f"{filename}:{content_hash}" if content_hash else filename
+
+                if await redis_client.sismember(PROCESSED_SET_KEY, idempotency_key):
+                    logger.info("↩️ Skipping already processed document: %s", filename)
+                    continue
 
                 if path and filename:
-                    await process_document(path, filename)
+                    success = await process_document(path, filename)
+                    if success:
+                        await redis_client.sadd(PROCESSED_SET_KEY, idempotency_key)
+                    elif retries < MAX_RETRIES:
+                        data["retries"] = retries + 1
+                        await redis_client.rpush(INGESTION_QUEUE_KEY, json.dumps(data))
+                        logger.warning(
+                            "Retrying %s (%d/%d)",
+                            filename,
+                            retries + 1,
+                            MAX_RETRIES,
+                        )
+                    else:
+                        await redis_client.rpush(DEAD_LETTER_QUEUE_KEY, json.dumps(data))
+                        logger.error("Moved failed task to dead-letter queue: %s", filename)
                 else:
                     logger.warning("Skipping queue message with missing path/filename")
             except json.JSONDecodeError as e:

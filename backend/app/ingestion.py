@@ -1,6 +1,7 @@
 import logging
 import json
 import os
+import hashlib
 import aiofiles
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from app.core.redis import redis_client
@@ -63,10 +64,13 @@ async def ingest_document(file: UploadFile = File(...)):
             raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
         
         # Push task to durable Redis queue
+        content_hash = hashlib.sha256(content).hexdigest()
         message = {
             "filename": file.filename,
             "path": file_path,
-            "size": len(content)
+            "size": len(content),
+            "content_hash": content_hash,
+            "retries": 0,
         }
         
         try:

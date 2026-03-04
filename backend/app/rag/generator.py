@@ -1,5 +1,6 @@
 import logging
 import asyncio
+import re
 from typing import AsyncGenerator, Dict, List, Any, Tuple
 import json
 import httpx
@@ -23,6 +24,56 @@ class StreamToken:
     
     def to_json(self) -> str:
         return json.dumps(self.to_dict())
+
+
+def _select_best_citation(sentence: str, retrieved_chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    if not sentence.strip() or not retrieved_chunks:
+        return []
+
+    sentence_terms = set(re.findall(r"[a-zA-Z0-9]+", sentence.lower()))
+    if not sentence_terms:
+        return []
+
+    best_chunk = None
+    best_overlap = -1
+
+    for chunk in retrieved_chunks:
+        chunk_text = str(chunk.get("chunk", ""))
+        chunk_terms = set(re.findall(r"[a-zA-Z0-9]+", chunk_text.lower()))
+        overlap = len(sentence_terms.intersection(chunk_terms))
+        if overlap > best_overlap:
+            best_overlap = overlap
+            best_chunk = chunk
+
+    if not best_chunk:
+        return []
+
+    return [{
+        "source": best_chunk.get("source", "document"),
+        "chunk_id": best_chunk.get("chunk_id", 0),
+        "similarity": best_chunk.get("similarity_score", 0.0)
+    }]
+
+
+async def warmup_ollama() -> None:
+    """Warm up generation model to reduce cold-start latency."""
+    url = f"{settings.OLLAMA_BASE_URL.rstrip('/')}/api/generate"
+    payload = {
+        "model": settings.MODEL_NAME,
+        "prompt": "Warmup",
+        "stream": False,
+        "options": {"num_predict": 1},
+        "keep_alive": "30m",
+    }
+
+    timeout = httpx.Timeout(connect=5.0, read=20.0, write=20.0, pool=20.0)
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(url, json=payload)
+            response.raise_for_status()
+            logger.info("✅ Ollama warmup completed")
+    except Exception as exc:
+        logger.warning("Ollama warmup skipped: %s", str(exc))
 
 async def generate_streaming_response(
     query: str,
@@ -156,6 +207,7 @@ async def _generate_ollama_response(
                 response.raise_for_status()
 
                 token_index = 0
+                current_sentence = ""
                 async for line in response.aiter_lines():
                     if not line:
                         continue
@@ -173,14 +225,11 @@ async def _generate_ollama_response(
                     if not token:
                         continue
 
+                    current_sentence += token
                     citations = []
-                    if token_index > 0 and token_index % 20 == 0 and retrieved_chunks:
-                        top = retrieved_chunks[0]
-                        citations.append({
-                            "source": top.get("source", "document"),
-                            "chunk_id": top.get("chunk_id", 0),
-                            "similarity": top.get("similarity_score", 0.0)
-                        })
+                    if any(end in token for end in [".", "!", "?"]):
+                        citations = _select_best_citation(current_sentence, retrieved_chunks)
+                        current_sentence = ""
 
                     yield StreamToken(token, token_type="token", citations=citations)
                     token_index += 1
@@ -215,7 +264,7 @@ def _build_rag_prompt(query: str, context: str) -> str:
     Returns:
         Formatted prompt
     """
-    system_prompt = """You are a helpful AI assistant. Answer the following question based on the provided context. If the context doesn't contain relevant information, say so clearly. Always cite your sources."""
+    system_prompt = """You are a helpful AI assistant. Answer using only the provided context. Keep answers concise and factual. If context is missing, clearly say so. Cite source/chunk at sentence boundaries when possible."""
     
     prompt = f"""{system_prompt}
 

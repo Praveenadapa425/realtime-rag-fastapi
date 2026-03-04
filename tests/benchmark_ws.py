@@ -9,16 +9,17 @@ import websockets
 WS_URL = "ws://localhost:8000/query"
 QUERY = "Summarize the uploaded resume and list key skills"
 RUNS = 5
-CONCURRENT_CLIENTS = 5
+CONCURRENT_CLIENTS = 10
 
 
 async def single_stream_metrics(query: str = QUERY) -> Dict[str, float]:
-    start = time.perf_counter()
+    connect_start = time.perf_counter()
     first_token_at = None
     token_count = 0
 
     async with websockets.connect(WS_URL) as ws:
         await ws.send(query)
+        start = time.perf_counter()
 
         while True:
             message = await ws.recv()
@@ -39,11 +40,13 @@ async def single_stream_metrics(query: str = QUERY) -> Dict[str, float]:
     end = time.perf_counter()
     ttft = (first_token_at - start) if first_token_at else (end - start)
     duration = end - start
+    connect_time = start - connect_start
     tps = token_count / duration if duration > 0 else 0.0
 
     return {
         "ttft": ttft,
         "duration": duration,
+        "connect_time": connect_time,
         "tokens": token_count,
         "tps": tps,
     }
@@ -77,16 +80,19 @@ def summarize_serial(results: List[Dict[str, float]]) -> Dict[str, float]:
     ttft_values = [item["ttft"] for item in results]
     tps_values = [item["tps"] for item in results]
     durations = [item["duration"] for item in results]
+    connect_times = [item["connect_time"] for item in results]
 
     return {
         "ttft_p50_ms": statistics.median(ttft_values) * 1000,
         "ttft_p95_ms": sorted(ttft_values)[max(0, int(len(ttft_values) * 0.95) - 1)] * 1000,
         "tokens_per_sec_avg": statistics.mean(tps_values),
         "duration_avg_s": statistics.mean(durations),
+        "connect_time_avg_ms": statistics.mean(connect_times) * 1000,
     }
 
 
 async def main() -> None:
+    await single_stream_metrics("Warmup query")
     serial_results = await run_serial_benchmark()
     serial_summary = summarize_serial(serial_results)
     concurrency_summary = await run_concurrency_benchmark()

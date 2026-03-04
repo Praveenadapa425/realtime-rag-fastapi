@@ -45,23 +45,21 @@ Command used:
 `python tests/benchmark_ws.py`
 
 Serial streaming benchmark (5 runs):
-- TTFT p50: **1498 ms**
-- TTFT p95: **2161 ms**
-- Average token rate: **54.03 tokens/sec**
-- Average stream duration: **6.17 sec**
+- TTFT p50 (query-send → first token): **1.00 ms**
+- TTFT p95 (query-send → first token): **1.27 ms**
+- Average token rate: **27.63 tokens/sec**
+- Average stream duration: **4.82 sec**
+- Average connect handshake time: **2041.22 ms**
 
 Concurrency benchmark:
-- Concurrent clients: **5**
+- Concurrent clients: **10**
 - Success rate: **100%**
-- Total wall time: **23.47 sec**
+- Total wall time: **44.10 sec**
 
 ## Gaps / Next Measurements
 
-To produce strict numeric report for submission, run load test script and record:
-- TTFT p50/p95
-- Tokens/sec
-- Concurrent websocket success rate
-- Ingestion-to-searchable latency
+Remaining optional measurement:
+- Ingestion-to-searchable latency (upload timestamp → first successful retrieval)
 
 ## Suggested Load Test Commands
 

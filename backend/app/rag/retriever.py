@@ -1,4 +1,5 @@
 import logging
+import asyncio
 from typing import List, Dict, Any, Optional
 from app.rag.embeddings import generate_embedding
 from app.core.vector_db import collection
@@ -53,10 +54,11 @@ async def retrieve_context(
         logger.debug(f"Generated query embedding (dim: {len(query_embedding)})")
         
         # Step 2: Search ChromaDB
-        search_results = collection.query(
+        search_results = await asyncio.to_thread(
+            collection.query,
             query_embeddings=[query_embedding],
             n_results=top_k,
-            include=["documents", "metadatas", "distances"]
+            include=["documents", "metadatas", "distances"],
         )
         
         logger.info(f"📚 Found {len(search_results['documents'][0])} potential matches")
