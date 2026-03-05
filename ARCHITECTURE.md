@@ -1,65 +1,157 @@
 # Architecture
 
-## High-Level Diagram
+## High-Level System Architecture
 
-```text
-┌──────────────────────────┐
-│        Frontend          │
-│   React + Vite (UI)      │
-└─────────────┬────────────┘
-	      │ HTTP/WS
-┌─────────────▼────────────┐
-│      FastAPI Backend     │
-│ /health /ingest /query   │
-└───────┬─────────┬────────┘
-	│         │
-	│Redis List Queue (`RPUSH`)  │Vector Search / LLM Context
-┌───────▼───┐   ┌─▼────────────────────┐
-│   Redis   │   │      ChromaDB        │
-│ ingestion │   │ vector collection     │
-└───────┬───┘   └──────────┬───────────┘
-	│                  │
-┌───────▼──────────────────▼───────────┐
-│         Worker Process                │
-│ `BLPOP` → read file → chunk → embed → upsert │
-└────────────────────────────────────────┘
-	      │
-	      ▼
-       Ollama (Local LLM)
+```mermaid
+graph TB
+    Frontend[Frontend<br/>React + Vite UI]
+    Backend[FastAPI Backend<br/>/health /ingest /query]
+    Redis[Redis<br/>Ingestion Queue]
+    ChromaDB[ChromaDB<br/>Vector Database]
+    Worker[Worker Process<br/>Document Processing]
+    Ollama[Ollama<br/>Local LLM]
+    
+    Frontend -->|HTTP/WS| Backend
+    Backend -->|RPUSH| Redis
+    Backend -->|Vector Operations| ChromaDB
+    Redis -->|BLPOP| Worker
+    Worker -->|Embed & Upsert| ChromaDB
+    Worker -->|Generate Context| Ollama
+    Backend -->|Stream Tokens| Frontend
+```
+
+## Data Flow
+
+### Ingestion Flow
+
+```mermaid
+sequenceDiagram
+    participant F as Frontend
+    participant B as Backend API
+    participant R as Redis Queue
+    participant W as Worker
+    participant C as ChromaDB
+    
+    F->>B: POST /ingest (file)
+    B->>R: RPUSH ingestion_queue
+    B-->>F: 202 Accepted
+    R->>W: BLPOP (blocking)
+    W->>W: Read & Chunk File
+    W->>W: Generate Embeddings
+    W->>C: Upsert Vectors
+    W->>R: Store idempotency key
+```
+
+### Query Flow
+
+```mermaid
+sequenceDiagram
+    participant F as Frontend
+    participant B as Backend API
+    participant C as ChromaDB
+    participant O as Ollama
+    
+    F->>B: WS /query (question)
+    B->>C: Similarity Search
+    C-->>B: Top K Chunks
+    B->>O: Generate Response
+    O-->>B: Token Stream
+    B-->>F: Token Events
+    B-->>F: Citations
+    B-->>F: Complete
+```
+
+## Component Details
+
+```mermaid
+graph LR
+    subgraph "Frontend Layer"
+        UI[React Components]
+        WS[WebSocket Client]
+    end
+    
+    subgraph "API Layer"
+        Health[Health Endpoint]
+        Ingest[Ingest Endpoint]
+        Query[Query WebSocket]
+    end
+    
+    subgraph "Processing Layer"
+        Queue[Redis Queue]
+        Worker[Document Worker]
+    end
+    
+    subgraph "Storage Layer"
+        VectorDB[(ChromaDB)]
+        Cache[(Redis Cache)]
+    end
+    
+    subgraph "AI Layer"
+        Embed[Embedding Model]
+        LLM[Ollama LLM]
+    end
+    
+    UI --> WS
+    UI --> Health
+    UI --> Ingest
+    WS --> Query
+    Health --> Queue
+    Ingest --> Queue
+    Query --> VectorDB
+    Queue --> Worker
+    Worker --> VectorDB
+    Worker --> Embed
+    Query --> LLM
 ```
 
 ## Components
 
 ### 1. Frontend
-- Sends file upload requests to `/ingest`.
-- Opens WebSocket to `/query` for token streaming.
-- Renders tokens incrementally and displays citations.
+- **Technology**: React + Vite
+- **Responsibilities**:
+  - Sends file upload requests to `/ingest`
+  - Opens WebSocket connection to `/query` for token streaming
+  - Renders tokens incrementally and displays citations
+  - Real-time UI updates with WebSocket events
 
 ### 2. Backend API (FastAPI)
-- `GET /health`: checks service and Redis connectivity.
-- `POST /ingest`: validates file and enqueues ingestion message in Redis.
-- `WS /query`: retrieves context, calls generator, streams token events.
+- **Endpoints**:
+  - `GET /health`: Service health check and Redis connectivity
+  - `POST /ingest`: File validation and task queuing
+  - `WS /query`: Context retrieval and token streaming
+- **Features**: Async-first design for low latency and high concurrency
 
 ### 3. Redis
-- Acts as durable message queue (Redis List key `ingestion_queue`).
-- Decouples API request handling from ingestion work.
-- Stores processed idempotency keys and a dead-letter queue (`ingestion_dead_letter`).
+- **Role**: Durable message queue
+- **Keys**:
+  - `ingestion_queue`: Redis List for task distribution (RPUSH/BLPOP)
+  - `ingestion_dead_letter`: Failed task storage
+  - Idempotency keys for duplicate prevention
+- **Benefits**: Decouples API from processing, ensures reliability
 
 ### 4. Worker
-- Blocks on Redis queue (`BLPOP`) and consumes tasks reliably.
-- Processes uploaded files asynchronously.
-- Chunks text and stores vectors + metadata in ChromaDB.
-- Retries failed tasks and dead-letters after max attempts.
+- **Process**:
+  1. Blocks on Redis queue (`BLPOP`)
+  2. Consumes tasks asynchronously
+  3. Processes uploaded files (chunking, embedding)
+  4. Stores vectors + metadata in ChromaDB
+  5. Implements retry logic with dead-letter queue
 
 ### 5. ChromaDB
-- Stores embeddings and metadata in persistent collection.
-- Used for similarity retrieval at query time.
+- **Purpose**: Vector database for embeddings
+- **Features**:
+  - Persistent collection storage
+  - Similarity search at query time
+  - Metadata storage alongside vectors
 
 ### 6. Ollama
-- Streams model response tokens from local model.
-- Backend relays stream to client in WebSocket message format.
+- **Function**: Local LLM for response generation
+- **Integration**: Streams model tokens via WebSocket
+- **Benefit**: Cost-free development with local inference
 
 ## WebSocket Message Contract
+
+All WebSocket messages follow this JSON structure:
 
 ```json
 {"type":"token","payload":"..."}
@@ -70,7 +162,9 @@
 
 ## Design Decisions
 
-- Async-first backend for low latency and concurrency.
-- Worker decoupling to avoid blocking `/ingest` requests.
-- Local vector DB for simple reproducible setup.
-- Local LLM via Ollama for cost-free development.
+- **Async-First Backend**: Maximizes throughput and minimizes latency
+- **Worker Decoupling**: Prevents blocking on `/ingest` endpoint
+- **Local Vector DB**: Simple, reproducible setup with ChromaDB
+- **Local LLM**: Cost-effective development using Ollama
+- **Message Queue**: Redis provides durable, reliable task distribution
+- **Idempotency**: Prevents duplicate processing with Redis keys
