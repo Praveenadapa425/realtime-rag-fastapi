@@ -1,23 +1,23 @@
 {
   "serial": {
-    "server_ttft_p50_ms": 11.6039999993518,
-    "server_ttft_p95_ms": 13.552340000751428,
-    "total_latency_p50_ms": 1529.0841999994882,
-    "total_latency_p95_ms": 1626.0543000018515,
-    "tokens_per_sec_avg": 16.95000619053004,
-    "connect_handshake_p50_ms": 6.507499998406274,
-    "connect_handshake_p95_ms": 7.2851000004448,
+    "server_ttft_p50_ms": 12.014400002954062,
+    "server_ttft_p95_ms": 14.02352000150131,
+    "total_latency_p50_ms": 1800.4944999993313,
+    "total_latency_p95_ms": 4646.626139998989,
+    "tokens_per_sec_avg": 9.57603018180904,
+    "connect_handshake_p50_ms": 6.260000001930166,
+    "connect_handshake_p95_ms": 7.068679998337757,
     "avg_citations_per_stream": 0
   },
   "concurrency": {
     "clients": 10,
     "success_rate": 100.0,
-    "wall_time": 6.501040800001647
+    "wall_time": 9.813832099996944
   },
   "ingestion_to_searchable": {
     "searchable": true,
-    "latency_s": 1.7660708999974304,
-    "filename": "benchmark_ingest_08f130d8.txt",
-    "keyword": "GPP-UNIQUE-08f130d8"
+    "latency_s": 2.0800816000009945,
+    "filename": "benchmark_ingest_d3bb9568.txt",
+    "keyword": "GPP-UNIQUE-d3bb9568"
   }
 }

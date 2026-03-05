@@ -24,7 +24,7 @@ services:
       - REDIS_HOST=${REDIS_HOST:-redis}
       - REDIS_PORT=${REDIS_PORT:-6379}
       - BACKEND_PORT=${BACKEND_PORT:-8000}
-      - VECTOR_DB_PATH=${VECTOR_DB_PATH:-./chroma_data}
+      - VECTOR_DB_PATH=${VECTOR_DB_PATH:-/data/chroma}
       - MODEL_NAME=${MODEL_NAME:-gemma3:1b}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text}
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
@@ -34,6 +34,7 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/app
+      - chroma_data:/data/chroma
     depends_on:
       redis:
         condition: service_healthy
@@ -48,13 +49,14 @@ services:
     environment:
       - REDIS_HOST=${REDIS_HOST:-redis}
       - REDIS_PORT=${REDIS_PORT:-6379}
-      - VECTOR_DB_PATH=${VECTOR_DB_PATH:-./chroma_data}
+      - VECTOR_DB_PATH=${VECTOR_DB_PATH:-/data/chroma}
       - MODEL_NAME=${MODEL_NAME:-gemma3:1b}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text}
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
     command: ["python", "-m", "worker.worker"]
     volumes:
       - ./backend:/app
+      - chroma_data:/data/chroma
     depends_on:
       redis:
         condition: service_healthy
@@ -78,6 +80,7 @@ services:
 
 volumes:
   redis_data:
+  chroma_data:
 
 networks:
   rag_network:

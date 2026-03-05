@@ -1,5 +1,6 @@
 import logging
 import asyncio
+import re
 from typing import List, Dict, Any, Optional
 from app.rag.embeddings import generate_embedding
 from app.core.vector_db import collection
@@ -53,11 +54,12 @@ async def retrieve_context(
         query_embedding = await generate_embedding(query)
         logger.debug(f"Generated query embedding (dim: {len(query_embedding)})")
         
-        # Step 2: Search ChromaDB
+        # Step 2: Search ChromaDB (use larger candidate pool, then rerank)
+        candidate_count = min(max(top_k * 8, 20), 100)
         search_results = await asyncio.to_thread(
             collection.query,
             query_embeddings=[query_embedding],
-            n_results=top_k,
+            n_results=candidate_count,
             include=["documents", "metadatas", "distances"],
         )
         
@@ -68,6 +70,9 @@ async def retrieve_context(
         
         if search_results['documents'] and search_results['documents'][0]:
             all_candidates = []
+            query_terms = set(re.findall(r"[a-zA-Z0-9]+", query.lower()))
+            query_compact = " ".join(query.lower().split())
+
             for i, (doc, metadata, distance) in enumerate(zip(
                 search_results['documents'][0],
                 search_results['metadatas'][0],
@@ -76,22 +81,43 @@ async def retrieve_context(
                 # Convert distance to similarity score (0-1)
                 # Chromadb returns euclidean distance, convert to similarity
                 similarity_score = 1 / (1 + distance)
+
+                doc_lower = (doc or "").lower()
+                doc_terms = set(re.findall(r"[a-zA-Z0-9]+", doc_lower))
+                lexical_overlap = (
+                    len(query_terms.intersection(doc_terms)) / max(len(query_terms), 1)
+                    if query_terms
+                    else 0.0
+                )
+                phrase_bonus = 0.2 if query_compact and query_compact in doc_lower else 0.0
+                rerank_score = similarity_score + (0.35 * lexical_overlap) + phrase_bonus
                 
                 candidate = RetrievalResult(
                     chunk=doc,
                     source=metadata.get("source", "unknown"),
                     chunk_id=metadata.get("chunk", i),
-                    similarity_score=similarity_score,
-                    metadata=metadata
+                    similarity_score=rerank_score,
+                    metadata={
+                        **metadata,
+                        "vector_similarity": round(similarity_score, 6),
+                        "lexical_overlap": round(lexical_overlap, 6),
+                        "phrase_bonus": round(phrase_bonus, 6),
+                    },
                 )
                 all_candidates.append(candidate)
 
-                # Filter by relevance threshold
-                if similarity_score >= relevance_threshold:
+            all_candidates.sort(key=lambda c: c.similarity_score, reverse=True)
+
+            for i, candidate in enumerate(all_candidates[: max(top_k * 2, top_k)]):
+                score = candidate.similarity_score
+                if score >= relevance_threshold:
                     retrieval_results.append(candidate)
-                    logger.info(f"  ✓ Chunk {i}: {candidate.source} (score: {similarity_score:.3f})")
+                    logger.info(f"  ✓ Chunk {i}: {candidate.source} (score: {score:.3f})")
                 else:
-                    logger.info(f"  ✗ Chunk {i}: Below threshold (score: {similarity_score:.3f})")
+                    logger.info(f"  ✗ Chunk {i}: Below threshold (score: {score:.3f})")
+
+                if len(retrieval_results) >= top_k:
+                    break
 
             if not retrieval_results and all_candidates:
                 fallback_count = min(top_k, len(all_candidates))
