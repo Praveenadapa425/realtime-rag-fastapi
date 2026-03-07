@@ -10,18 +10,25 @@ def _collection_name_for_model(model_name: str) -> str:
     normalized = "_".join(part for part in normalized.split("_") if part)
     return f"documents_{normalized}"[:63]
 
-try:
-    client = chromadb.Client(
+
+def _build_client():
+    return chromadb.Client(
         chromadb.config.Settings(
             persist_directory=settings.VECTOR_DB_PATH,
-            is_persistent=True
+            is_persistent=True,
         )
     )
 
+try:
+    client = _build_client()
+
     collection_name = _collection_name_for_model(settings.EMBEDDING_MODEL)
 
-    def get_collection():
+    def get_collection(refresh: bool = False):
         """Resolve collection lazily to avoid stale handles across long-running processes."""
+        global client
+        if refresh:
+            client = _build_client()
         return client.get_or_create_collection(name=collection_name)
 
     # Trigger initialization once on startup for visibility and early failures.

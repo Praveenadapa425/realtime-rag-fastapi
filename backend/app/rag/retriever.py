@@ -7,6 +7,56 @@ from app.core.vector_db import get_collection
 
 logger = logging.getLogger(__name__)
 
+
+def _is_refreshable_chroma_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "hnsw segment reader" in message or "nothing found on disk" in message
+
+
+def _lexical_score(query: str, doc: str) -> float:
+    query_terms = set(re.findall(r"[a-zA-Z0-9]+", (query or "").lower()))
+    doc_lower = (doc or "").lower()
+    if not query_terms or not doc_lower.strip():
+        return 0.0
+
+    doc_terms = set(re.findall(r"[a-zA-Z0-9]+", doc_lower))
+    overlap = len(query_terms.intersection(doc_terms)) / max(len(query_terms), 1)
+    query_compact = " ".join((query or "").lower().split())
+    phrase_bonus = 0.2 if query_compact and query_compact in doc_lower else 0.0
+    return overlap + phrase_bonus
+
+
+async def _fallback_keyword_retrieval(query: str, top_k: int) -> List["RetrievalResult"]:
+    """Fallback retrieval path using lexical ranking on stored documents."""
+    collection = get_collection(refresh=True)
+    data = await asyncio.to_thread(
+        collection.get,
+        include=["documents", "metadatas"],
+    )
+
+    docs = data.get("documents") or []
+    metas = data.get("metadatas") or []
+    candidates: List["RetrievalResult"] = []
+
+    for idx, doc in enumerate(docs):
+        metadata = metas[idx] if idx < len(metas) and isinstance(metas[idx], dict) else {}
+        score = _lexical_score(query, doc or "")
+        if score <= 0:
+            continue
+
+        candidates.append(
+            RetrievalResult(
+                chunk=doc or "",
+                source=metadata.get("source", "unknown"),
+                chunk_id=metadata.get("chunk", idx),
+                similarity_score=score,
+                metadata={**metadata, "retrieval_mode": "lexical_fallback"},
+            )
+        )
+
+    candidates.sort(key=lambda item: item.similarity_score, reverse=True)
+    return candidates[:top_k]
+
 class RetrievalResult:
     """Represents a retrieved document chunk with metadata"""
     def __init__(self, chunk: str, source: str, chunk_id: int, similarity_score: float, metadata: Dict[str, Any]):
@@ -57,12 +107,24 @@ async def retrieve_context(
         # Step 2: Search ChromaDB (use larger candidate pool, then rerank)
         candidate_count = min(max(top_k * 8, 20), 100)
         collection = get_collection()
-        search_results = await asyncio.to_thread(
-            collection.query,
-            query_embeddings=[query_embedding],
-            n_results=candidate_count,
-            include=["documents", "metadatas", "distances"],
-        )
+        try:
+            search_results = await asyncio.to_thread(
+                collection.query,
+                query_embeddings=[query_embedding],
+                n_results=candidate_count,
+                include=["documents", "metadatas", "distances"],
+            )
+        except Exception as query_exc:
+            if not _is_refreshable_chroma_error(query_exc):
+                raise
+            logger.warning("Retrying retrieval after Chroma client refresh: %s", str(query_exc))
+            collection = get_collection(refresh=True)
+            search_results = await asyncio.to_thread(
+                collection.query,
+                query_embeddings=[query_embedding],
+                n_results=candidate_count,
+                include=["documents", "metadatas", "distances"],
+            )
         
         logger.info(f"📚 Found {len(search_results['documents'][0])} potential matches")
         
@@ -138,6 +200,16 @@ async def retrieve_context(
     
     except Exception as e:
         logger.error(f"❌ Error retrieving context: {str(e)}", exc_info=True)
+        try:
+            fallback_results = await _fallback_keyword_retrieval(query, top_k)
+            if fallback_results:
+                logger.warning(
+                    "Using lexical fallback retrieval with %d chunks due to vector query failure",
+                    len(fallback_results),
+                )
+                return fallback_results, _format_context_for_llm(fallback_results)
+        except Exception as fallback_exc:
+            logger.error("Fallback retrieval also failed: %s", str(fallback_exc), exc_info=True)
         return [], ""
 
 def _format_context_for_llm(results: List[RetrievalResult]) -> str:
