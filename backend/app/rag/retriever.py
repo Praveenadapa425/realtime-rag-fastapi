@@ -3,7 +3,7 @@ import asyncio
 import re
 from typing import List, Dict, Any, Optional
 from app.rag.embeddings import generate_embedding
-from app.core.vector_db import collection
+from app.core.vector_db import get_collection
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +56,7 @@ async def retrieve_context(
         
         # Step 2: Search ChromaDB (use larger candidate pool, then rerank)
         candidate_count = min(max(top_k * 8, 20), 100)
+        collection = get_collection()
         search_results = await asyncio.to_thread(
             collection.query,
             query_embeddings=[query_embedding],

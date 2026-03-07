@@ -19,10 +19,13 @@ try:
     )
 
     collection_name = _collection_name_for_model(settings.EMBEDDING_MODEL)
-    
-    collection = client.get_or_create_collection(
-        name=collection_name
-    )
+
+    def get_collection():
+        """Resolve collection lazily to avoid stale handles across long-running processes."""
+        return client.get_or_create_collection(name=collection_name)
+
+    # Trigger initialization once on startup for visibility and early failures.
+    get_collection()
     
     logger.info(
         "✅ ChromaDB initialized at %s (collection: %s)",

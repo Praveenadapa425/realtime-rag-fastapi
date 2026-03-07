@@ -10,7 +10,7 @@ from pypdf import PdfReader
 from app.config import settings
 from app.utils import chunk_text
 from app.rag.embeddings import generate_embedding
-from app.core.vector_db import collection
+from app.core.vector_db import get_collection
 
 logger = logging.getLogger(__name__)
 INGESTION_QUEUE_KEY = "ingestion_queue"
@@ -98,6 +98,7 @@ async def process_document(path: str, filename: str) -> bool:
             })
         
         # Store in ChromaDB
+        collection = get_collection()
         await asyncio.to_thread(
             collection.add,
             documents=documents,
