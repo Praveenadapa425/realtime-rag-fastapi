@@ -225,44 +225,52 @@ async def _generate_ollama_response(
     timeout = httpx.Timeout(connect=10.0, read=120.0, write=30.0, pool=30.0)
 
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            async with client.stream("POST", url, json=payload) as response:
-                response.raise_for_status()
+        attempts = 2
+        for attempt in range(1, attempts + 1):
+            try:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    async with client.stream("POST", url, json=payload) as response:
+                        response.raise_for_status()
 
-                token_index = 0
-                current_sentence = ""
-                async for line in response.aiter_lines():
-                    if not line:
-                        continue
-
-                    try:
-                        data = json.loads(line)
-                    except json.JSONDecodeError:
-                        logger.debug("Skipping non-JSON Ollama stream line")
-                        continue
-
-                    if data.get("done"):
-                        break
-
-                    token = data.get("response", "")
-                    if not token:
-                        continue
-
-                    citation_payload = None
-                    current_sentence += token
-                    if any(end in token for end in [".", "!", "?"]):
-                        citation_payload = _select_best_citation(current_sentence, retrieved_chunks)
+                        token_index = 0
                         current_sentence = ""
+                        async for line in response.aiter_lines():
+                            if not line:
+                                continue
 
-                    yield StreamToken(token, token_type="token")
+                            try:
+                                data = json.loads(line)
+                            except json.JSONDecodeError:
+                                logger.debug("Skipping non-JSON Ollama stream line")
+                                continue
 
-                    if citation_payload:
-                        yield StreamToken(
-                            citation_payload,
-                            token_type="citation",
-                            citations=[citation_payload],
-                        )
-                    token_index += 1
+                            if data.get("done"):
+                                break
+
+                            token = data.get("response", "")
+                            if not token:
+                                continue
+
+                            citation_payload = None
+                            current_sentence += token
+                            if any(end in token for end in [".", "!", "?"]):
+                                citation_payload = _select_best_citation(current_sentence, retrieved_chunks)
+                                current_sentence = ""
+
+                            yield StreamToken(token, token_type="token")
+
+                            if citation_payload:
+                                yield StreamToken(
+                                    citation_payload,
+                                    token_type="citation",
+                                    citations=[citation_payload],
+                                )
+                            token_index += 1
+                return
+            except httpx.ConnectError:
+                if attempt >= attempts:
+                    raise
+                await asyncio.sleep(1.0)
 
     except httpx.HTTPStatusError as exc:
         logger.error(f"Ollama HTTP error: {exc.response.status_code} - {exc.response.text}")
@@ -279,7 +287,7 @@ async def _generate_ollama_response(
         yield StreamToken(
             {
                 "code": "OLLAMA_UNAVAILABLE",
-                "message": "Unable to reach Ollama. Ensure Ollama is running on localhost:11434.",
+                "message": f"Unable to reach Ollama at {settings.OLLAMA_BASE_URL}. Ensure Ollama is running and reachable from backend.",
             },
             token_type="error",
         )

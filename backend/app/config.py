@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     VECTOR_DB_PATH: str = "./chroma_data"
     MODEL_NAME: str = "llama3"
     EMBEDDING_MODEL: str = "nomic-embed-text"
+    FALLBACK_EMBEDDING_DIM: int = 768
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     BACKEND_PORT: int = 8000
     FRONTEND_URL: str = "http://localhost:3000"

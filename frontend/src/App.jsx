@@ -22,6 +22,10 @@ export default function App() {
   const ingestionPollRef = useRef(null)
 
   const citationKey = (item) => `${item?.source || 'unknown'}-${item?.chunk_id ?? 0}`
+  const formatState = (value) => {
+    if (!value) return 'idle'
+    return String(value).replace(/_/g, ' ')
+  }
 
   const uniqueCitations = useMemo(() => {
     const map = new Map()
@@ -222,14 +226,19 @@ export default function App() {
 
   return (
     <div className="page">
-      <header className="header">
+      <header className="hero">
+        <p className="eyebrow">Retrieval-Augmented QA</p>
         <h1>Real-Time Streaming RAG</h1>
-        <p>FastAPI + Redis + ChromaDB + Ollama</p>
+        <p className="hero-subtitle">Ask questions from your documents with real-time token streaming.</p>
       </header>
 
-      <main className="grid">
-        <section className="card">
-          <h2>Ask a Question</h2>
+      <main className="layout">
+        <section className="card card-primary ask-panel">
+          <div className="card-head">
+            <h2>Ask a Question</h2>
+            <span className={`badge badge-${connectionState}`}>Connection: {formatState(connectionState)}</span>
+          </div>
+          <p className="section-note">Ask anything from uploaded documents and watch the answer stream in real time.</p>
           <form onSubmit={handleAsk} className="stack">
             <textarea
               value={query}
@@ -242,9 +251,9 @@ export default function App() {
             </button>
           </form>
 
-          <div className="status">Connection: <strong>{connectionState}</strong></div>
           {error ? <div className="error">{error}</div> : null}
 
+          <h3 className="subsection-title">Response</h3>
           <div className="response" aria-live="polite">
             {response || 'Response will stream here...'}
           </div>
@@ -257,7 +266,7 @@ export default function App() {
               <ul>
                 {uniqueCitations.map((c) => (
                   <li key={citationKey(c)}>
-                    <span>{c.source || 'unknown'}</span>
+                    <span className="citation-source">{c.source || 'unknown'}</span>
                     <span>chunk: {c.chunk_id ?? 0}</span>
                     <span>score: {typeof c.similarity === 'number' ? c.similarity.toFixed(3) : 'n/a'}</span>
                   </li>
@@ -267,38 +276,66 @@ export default function App() {
           </div>
         </section>
 
-        <section className="card">
-          <h2>Upload Document</h2>
-          <form onSubmit={handleFileUpload} className="stack">
-            <input
-              type="file"
-              accept=".txt,.pdf,.md,.doc,.docx"
-              onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-            />
-            <button type="submit" disabled={!selectedFile || uploadState === 'uploading'}>
-              {uploadState === 'uploading' ? 'Uploading...' : 'Upload to /ingest'}
-            </button>
-          </form>
+        <aside className="side-panel">
+          <section className="card">
+            <div className="card-head">
+              <h2>Upload Document</h2>
+              <span className={`badge badge-${ingestionStatus}`}>Status: {formatState(ingestionStatus)}</span>
+            </div>
+            <p className="section-note">Supported formats: TXT, PDF, MD, DOC, DOCX.</p>
+            <form onSubmit={handleFileUpload} className="stack">
+              <input
+                type="file"
+                accept=".txt,.pdf,.md,.doc,.docx"
+                onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+              />
+              <button type="submit" disabled={!selectedFile || uploadState === 'uploading'}>
+                {uploadState === 'uploading' ? 'Uploading...' : 'Upload to /ingest'}
+              </button>
+            </form>
 
-          <div className={`upload ${uploadState}`}>
-            {uploadMessage || 'Choose a file and upload to start ingestion.'}
-          </div>
+            <div className={`upload ${uploadState}`}>
+              {uploadMessage || 'Choose a file and upload to start ingestion.'}
+            </div>
+          </section>
 
-          <div className="status">
-            Ingestion status: <strong>{ingestionStatus}</strong>
-            {ingestionTaskId ? ` (${ingestionTaskId})` : ''}
-          </div>
-          <div className="upload">{ingestionStatusMessage || 'No active ingestion task.'}</div>
+          <section className="card info-card">
+            <h2>System Status</h2>
+            <div className="status-grid">
+              <div className="status-row">
+                <span>Connection</span>
+                <strong>{formatState(connectionState)}</strong>
+              </div>
+              <div className="status-row">
+                <span>Ingestion</span>
+                <strong>{formatState(ingestionStatus)}</strong>
+              </div>
+              <div className="status-row">
+                <span>Task ID</span>
+                <strong>{ingestionTaskId || 'none'}</strong>
+              </div>
+            </div>
+            <div className="upload">{ingestionStatusMessage || 'No active ingestion task.'}</div>
 
-          <div className="help">
-            <h3>How to use</h3>
-            <ol>
-              <li>Upload a document.</li>
-              <li>Wait for worker to process embeddings.</li>
-              <li>Ask a question and watch tokens stream live.</li>
-            </ol>
-          </div>
-        </section>
+            <div className="help">
+              <h3>How it works</h3>
+              <ol>
+                <li>Upload a document.</li>
+                <li>Wait for worker to process embeddings.</li>
+                <li>Ask a question and watch tokens stream live.</li>
+              </ol>
+            </div>
+
+            <div className="help improvements">
+              <h3>Improvements</h3>
+              <ul>
+                <li>More precise citations by sentence grounding.</li>
+                <li>Document source filtering per query.</li>
+                <li>Conversation history and follow-up questions.</li>
+              </ul>
+            </div>
+          </section>
+        </aside>
       </main>
     </div>
   )
